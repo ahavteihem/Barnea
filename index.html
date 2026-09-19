@@ -28,8 +28,19 @@
     window._firestore = {
       fsDb: _db,
       doc: function(db, col, id) { return db.collection(col).doc(id); },
-      getDoc: function(ref) { return ref.get().then(function(snap) { return { exists: function(){ return snap.exists; }, data: function(){ return snap.data(); } }; }); },
-      setDoc: function(ref, data) { return ref.set(data); }
+      getDoc: function(ref) {
+        return ref.get().then(function(snap) {
+          return {
+            exists: function(){ return snap.exists; },
+            data: function(){ return snap.data(); }
+          };
+        });
+      },
+      setDoc: function(ref, data) {
+        // Deep clean: remove undefined values that Firestore rejects
+        var clean = JSON.parse(JSON.stringify(data));
+        return ref.set(clean);
+      }
     };
     console.log("Firebase initialized OK");
   </script>
@@ -104,50 +115,24 @@ const EMPTY_DB = {
 };
 async function loadFromSupabase() {
   try {
-    const sb = window.supabaseClient;
-    if (!sb) return {
-      ...EMPTY_DB
-    };
-    const {
-      data,
-      error
-    } = await sb.from("shul_data").select("value").eq("key", "main").maybeSingle();
-    if (error) {
-      console.error("Load error:", error.message);
-      return {
-        ...EMPTY_DB
-      };
-    }
-    if (!data) return {
-      ...EMPTY_DB
-    };
-    return {
-      ...EMPTY_DB,
-      ...data.value
-    };
-  } catch (e) {
-    console.error("Supabase load error:", e);
-    return {
-      ...EMPTY_DB
-    };
-  }
+    let attempts = 0;
+    while (!window._firestore && attempts < 30) { await new Promise(r => setTimeout(r, 200)); attempts++; }
+    if (!window._firestore) { console.error("Firestore not ready"); return { ...EMPTY_DB }; }
+    const { fsDb, doc, getDoc } = window._firestore;
+    const snap = await getDoc(doc(fsDb, "shul", "data"));
+    console.log("Firestore load: exists=", snap.exists());
+    return snap.exists() ? { ...EMPTY_DB, ...snap.data() } : { ...EMPTY_DB };
+  } catch(e) { console.error("Firestore load error:", e); return { ...EMPTY_DB }; }
 }
+
 async function saveToSupabase(db) {
   try {
-    const sb = window.supabaseClient;
-    if (!sb) return;
-    const {
-      error
-    } = await sb.from("shul_data").upsert({
-      key: "main",
-      value: db
-    }, {
-      onConflict: "key"
-    });
-    if (error) console.error("Save error:", error.message);
-  } catch (e) {
-    console.error("Supabase save error:", e);
-  }
+    if (!window._firestore) { console.error("Firestore not ready for save"); return; }
+    const { fsDb, doc, setDoc } = window._firestore;
+    const clean = JSON.parse(JSON.stringify(db));
+    await setDoc(doc(fsDb, "shul", "data"), clean);
+    console.log("Firestore save OK, members:", (clean.members||[]).length);
+  } catch(e) { console.error("Firestore save error:", e); }
 }
 
 // ─── Aliyot helpers ──────────────────────────────────────────────────────────
