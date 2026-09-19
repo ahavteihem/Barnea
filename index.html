@@ -11,13 +11,10 @@
   <div id="root"></div>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-    // ══════════════════════════════════════════════════════
-    //  הכנס כאן את ההגדרות מ-Firebase Console
-    // ══════════════════════════════════════════════════════
+  <!-- Firebase SDK via compat (synchronous init) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script>
     const firebaseConfig = {
       apiKey:            "AIzaSyAJ1k66RCKHcjvhzHhvHYPPHipjFLNaCrg",
       authDomain:        "ahavteihem-barnea.firebaseapp.com",
@@ -26,11 +23,15 @@
       messagingSenderId: "731670766255",
       appId:             "1:731670766255:web:3e6fc6c5f0107768426a5a"
     };
-    // ══════════════════════════════════════════════════════
-
-    const _app = initializeApp(firebaseConfig);
-    const _fsDb = getFirestore(_app);
-    window._firestore = { fsDb: _fsDb, doc, getDoc, setDoc };
+    firebase.initializeApp(firebaseConfig);
+    const _db = firebase.firestore();
+    window._firestore = {
+      fsDb: _db,
+      doc: function(db, col, id) { return db.collection(col).doc(id); },
+      getDoc: function(ref) { return ref.get().then(function(snap) { return { exists: function(){ return snap.exists; }, data: function(){ return snap.data(); } }; }); },
+      setDoc: function(ref, data) { return ref.set(data); }
+    };
+    console.log("Firebase initialized OK");
   </script>
   <script>
     var useState=React.useState,useEffect=React.useEffect,useMemo=React.useMemo,useRef=React.useRef;
