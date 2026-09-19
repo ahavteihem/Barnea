@@ -1380,15 +1380,31 @@ function AdminRequests({
   showToast
 }) {
   const upd = (id, status) => {
-    const requests = db.requests.map(r => r.id === id ? {
-      ...r,
-      status
-    } : r);
-    persist({
-      ...db,
-      requests
-    }, "עדכון בקשה", `#${id}: ${status}`);
+    const requests = db.requests.map(r => r.id === id ? { ...r, status } : r);
+    persist({ ...db, requests }, "עדכון בקשה", `#${id}: ${status}`);
     showToast(status === "אושרה" ? "אושרה" : "נדחתה");
+  };
+
+  const approveAndAssign = (r) => {
+    // 1. אשר את הבקשה
+    const requests = db.requests.map(req => req.id === r.id ? { ...req, status: "אושרה ושובצה" } : req);
+    // 2. שבץ בפועל בלוח השיבוצים
+    const parashaRow = CAL_ROWS.find(row => row[1] === r.parasha);
+    const newSchedule = { ...db.schedule };
+    if (parashaRow) {
+      newSchedule[r.parasha] = { ...(newSchedule[r.parasha] || {}), [r.aliya]: r.name };
+    }
+    // 3. הוסף להיסטוריה
+    const newHistory = { ...db.history };
+    if (!newHistory[r.parasha]) newHistory[r.parasha] = [];
+    if (!newHistory[r.parasha].includes(r.name)) newHistory[r.parasha].push(r.name);
+
+    persist(
+      { ...db, requests, schedule: newSchedule, history: newHistory },
+      "אישור ושיבוץ בקשה",
+      `${r.name} — ${r.parasha} ${r.aliya}`
+    );
+    showToast("✅ " + r.name + " שובץ ל" + r.aliya + " בפרשת " + r.parasha);
   };
   const del = id => {
     persist({
@@ -1423,7 +1439,7 @@ function ReqCard({
   upd,
   del
 }) {
-  const col = r.status === "אושרה" ? "#16a34a" : r.status === "נדחתה" ? "#dc2626" : "#d97706";
+  const col = r.status === "אושרה" || r.status === "אושרה ושובצה" ? "#16a34a" : r.status === "נדחתה" ? "#dc2626" : "#d97706";
   return /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.card,
@@ -1457,9 +1473,12 @@ function ReqCard({
       marginTop: 10
     }
   }, /*#__PURE__*/React.createElement(Btn, {
-    onClick: () => upd(r.id, "אושרה"),
+    onClick: () => approveAndAssign(r),
     variant: "green"
-  }, "✓ אשר"), /*#__PURE__*/React.createElement(Btn, {
+  }, "✓ אשר ושבץ"), /*#__PURE__*/React.createElement(Btn, {
+    onClick: () => upd(r.id, "אושרה"),
+    variant: "dark"
+  }, "✓ אשר בלבד"), /*#__PURE__*/React.createElement(Btn, {
     onClick: () => upd(r.id, "נדחתה"),
     variant: "red"
   }, "✕ דחה"), /*#__PURE__*/React.createElement(Btn, {
