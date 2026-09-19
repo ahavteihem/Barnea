@@ -120,18 +120,15 @@ async function loadFromSupabase() {
     if (!window._firestore) { console.error("Firestore not ready"); return { ...EMPTY_DB }; }
     const { fsDb, doc, getDoc } = window._firestore;
     const snap = await getDoc(doc(fsDb, "shul", "data"));
-    console.log("Firestore load: exists=", snap.exists());
     return snap.exists() ? { ...EMPTY_DB, ...snap.data() } : { ...EMPTY_DB };
   } catch(e) { console.error("Firestore load error:", e); return { ...EMPTY_DB }; }
 }
 
 async function saveToSupabase(db) {
   try {
-    if (!window._firestore) { console.error("Firestore not ready for save"); return; }
+    if (!window._firestore) return;
     const { fsDb, doc, setDoc } = window._firestore;
-    const clean = JSON.parse(JSON.stringify(db));
-    await setDoc(doc(fsDb, "shul", "data"), clean);
-    console.log("Firestore save OK, members:", (clean.members||[]).length);
+    await setDoc(doc(fsDb, "shul", "data"), JSON.parse(JSON.stringify(db)));
   } catch(e) { console.error("Firestore save error:", e); }
 }
 
@@ -1421,7 +1418,8 @@ function AdminRequests({
     key: r.id,
     r: r,
     upd: upd,
-    del: del
+    del: del,
+    approveAndAssign: approveAndAssign
   })), done.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.cardLabel,
@@ -1437,7 +1435,8 @@ function AdminRequests({
 function ReqCard({
   r,
   upd,
-  del
+  del,
+  approveAndAssign
 }) {
   const col = r.status === "אושרה" || r.status === "אושרה ושובצה" ? "#16a34a" : r.status === "נדחתה" ? "#dc2626" : "#d97706";
   return /*#__PURE__*/React.createElement("div", {
