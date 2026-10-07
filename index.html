@@ -811,11 +811,11 @@ function AdminScreen({
     id: "finances",
     label: "💰 כספים"
   }, {
-    id: "aliyot-settings",
-    label: "⚙️ עליות"
-  }, {
     id: "site-settings",
     label: "🔧 הגדרות"
+  }, {
+    id: "backup",
+    label: "💾 גיבוי"
   }, {
     id: "log",
     label: "📋 לוג"
@@ -869,6 +869,10 @@ function AdminScreen({
     persist: persist,
     showToast: showToast
   }), tab === "site-settings" && /*#__PURE__*/React.createElement(AdminSiteSettings, {
+    db: db,
+    persist: persist,
+    showToast: showToast
+  }), tab === "backup" && /*#__PURE__*/React.createElement(AdminBackup, {
     db: db,
     persist: persist,
     showToast: showToast
@@ -1825,6 +1829,98 @@ function AdminSiteSettings({ db, persist, showToast }) {
       ),
       /*#__PURE__*/React.createElement("div", { style: { marginTop: 12 } },
         /*#__PURE__*/React.createElement(Btn, { onClick: changePassword, variant: "dark" }, "🔐 שנה סיסמה")
+      )
+    )
+  );
+}
+
+function AdminBackup({ db, persist, showToast }) {
+
+  // ── הורדת גיבוי ──────────────────────────────────────────────────────────
+  const downloadBackup = () => {
+    const data = JSON.stringify(db, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const date = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = "backup-saieret-" + date + ".json";
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("✅ גיבוי הורד בהצלחה!");
+  };
+
+  // ── העלאת גיבוי ──────────────────────────────────────────────────────────
+  const uploadBackup = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.name.endsWith(".json")) { showToast("יש לבחור קובץ JSON בלבד", "err"); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.members || !data.schedule) { showToast("קובץ גיבוי לא תקין", "err"); return; }
+        if (!window.confirm("האם לשחזר גיבוי זה? כל הנתונים הנוכחיים יוחלפו!")) return;
+        persist(data, "שחזור גיבוי", file.name);
+        showToast("✅ גיבוי שוחזר בהצלחה!");
+      } catch(e) { showToast("שגיאה בקריאת הקובץ", "err"); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const backupDate = new Date().toLocaleDateString("he-IL");
+  const stats = [
+    { label: "מתפללים", val: (db.members||[]).length },
+    { label: "פרשות משובצות", val: Object.keys(db.schedule||{}).length },
+    { label: "בקשות", val: (db.requests||[]).length },
+    { label: "רשומות כספים", val: (db.finances||[]).length },
+  ];
+
+  return /*#__PURE__*/React.createElement("div", null,
+    /*#__PURE__*/React.createElement(SectionTitle, null, "גיבוי ושחזור"),
+
+    /*#__PURE__*/React.createElement("div", { style: S.card },
+      /*#__PURE__*/React.createElement("div", { style: S.cardLabel }, "📊 סטטוס נתונים נוכחיים"),
+      /*#__PURE__*/React.createElement("div", { style: { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))", gap:12, margin:"12px 0" } },
+        stats.map(function(s, i) {
+          return /*#__PURE__*/React.createElement("div", {
+            key: i,
+            style: { background:"#f5f0e8", borderRadius:8, padding:"12px", textAlign:"center", border:"1px solid #e8d5a0" }
+          },
+            /*#__PURE__*/React.createElement("div", { style: { fontSize:24, fontWeight:700, color:"#d4af37" } }, s.val),
+            /*#__PURE__*/React.createElement("div", { style: { fontSize:12, color:"#888", marginTop:4 } }, s.label)
+          );
+        })
+      )
+    ),
+
+    /*#__PURE__*/React.createElement("div", { style: S.card },
+      /*#__PURE__*/React.createElement("div", { style: S.cardLabel }, "⬇️ הורדת גיבוי"),
+      /*#__PURE__*/React.createElement("div", { style: { fontSize:13, color:"#555", marginBottom:12 } },
+        "מוריד קובץ JSON עם כל נתוני המערכת — מתפללים, שיבוצים, כספים, הגדרות"
+      ),
+      /*#__PURE__*/React.createElement("div", { style: { fontSize:12, color:"#aaa", marginBottom:16 } },
+        "תאריך היום: " + backupDate
+      ),
+      /*#__PURE__*/React.createElement(Btn, { onClick: downloadBackup, variant: "gold", big: true }, "⬇️ הורד גיבוי עכשיו")
+    ),
+
+    /*#__PURE__*/React.createElement("div", { style: { ...S.card, border:"1px solid #dc2626" } },
+      /*#__PURE__*/React.createElement("div", { style: { ...S.cardLabel, color:"#dc2626" } }, "⬆️ שחזור מגיבוי"),
+      /*#__PURE__*/React.createElement("div", { style: { fontSize:13, color:"#dc2626", marginBottom:12, background:"#fee2e2", padding:"10px 14px", borderRadius:8 } },
+        "⚠️ אזהרה: שחזור מגיבוי ימחק את כל הנתונים הנוכחיים ויחליף אותם בנתוני הגיבוי!"
+      ),
+      /*#__PURE__*/React.createElement("label", {
+        style: { display:"inline-block", background:"#2d1b4e", color:"#d4af37", padding:"10px 20px",
+          borderRadius:8, cursor:"pointer", fontWeight:700, fontSize:14, fontFamily:"inherit" }
+      },
+        "⬆️ בחר קובץ גיבוי",
+        /*#__PURE__*/React.createElement("input", {
+          type: "file", accept: ".json",
+          style: { display:"none" },
+          onChange: uploadBackup
+        })
       )
     )
   );
