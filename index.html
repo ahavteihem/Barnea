@@ -615,14 +615,20 @@ function RequestForm({
       return;
     }
     // בדוק אם העליה כבר שובצה בפועל בלוח השיבוצים
-    const assignedMember = (db.schedule || {})[parasha] && (db.schedule[parasha] || {})[aliya];
+    // חיפוש גמיש - מנרמל ניקוד לצורך השוואה
+    var scheduleKeys = Object.keys(db.schedule || {});
+    var matchedKey = scheduleKeys.find(function(k) {
+      return k === parasha || cleanName(k) === cleanName(parasha);
+    });
+    var assignedMember = matchedKey && (db.schedule[matchedKey] || {})[aliya];
     if (assignedMember) {
-      showToast("⛔ עליית " + aliya + " בפרשת " + parasha + " כבר שובצה ל" + assignedMember + ". לא ניתן להגיש בקשה.", "err");
+      showToast("⛔ עליית " + aliya + " בפרשת " + cleanName(parasha) + " כבר שובצה ל" + assignedMember + ". לא ניתן להגיש בקשה.", "err");
       return;
     }
     // בדוק אם כבר קיימת בקשה פתוחה לאותה עליה ופרשה
     const existingRequest = (db.requests || []).find(function(r) {
-      return r.parasha === parasha && r.aliya === aliya && r.status !== "נדחתה";
+      return (r.parasha === parasha || cleanName(r.parasha) === cleanName(parasha)) &&
+             r.aliya === aliya && r.status !== "נדחתה";
     });
     if (existingRequest) {
       showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו — הבקשה תועבר למנהל לאישור", "err");
