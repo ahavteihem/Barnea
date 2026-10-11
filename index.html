@@ -607,7 +607,7 @@ function RequestForm({
   });
   const [aliya, setAliya] = useState(ALIYOT_ASSIGN[0]);
   const [reason, setReason] = useState("");
-  const submit = async () => {
+  const submit = () => {
     if (!name.trim() || !reason.trim()) {
       showToast("יש למלא שם וסיבה", "err");
       return;
@@ -638,27 +638,11 @@ function RequestForm({
       return;
     }
     // בדוק אם כבר קיימת בקשה פתוחה לאותה עליה ופרשה
-    // בדיקה מ-Firebase בזמן אמת
-    try {
-      const liveSnap = await window._firestore.getDoc(
-        window._firestore.doc(window._firestore.fsDb, "shul", "data")
-      );
-      const liveData = liveSnap.exists() ? liveSnap.data() : {};
-      const liveRequests = liveData.requests || [];
-      const existingRequest = liveRequests.find(function(r) {
-        return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
-      });
-      if (existingRequest) {
-        showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו (" + existingRequest.name + ") — הבקשה תועבר למנהל לאישור", "err");
-      }
-    } catch(e) {
-      // fallback לבדיקה מקומית
-      const existingRequest = (db.requests || []).find(function(r) {
-        return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
-      });
-      if (existingRequest) {
-        showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו — הבקשה תועבר למנהל לאישור", "err");
-      }
+    const existingRequest = (db.requests || []).find(function(r) {
+      return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
+    });
+    if (existingRequest) {
+      showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו — הבקשה תועבר למנהל לאישור", "err");
     }
     const isNew = !db.members.includes(trimmedName);
     const updatedMembers = isNew
@@ -820,7 +804,11 @@ function YearParashiyot({ db, selectedDate, setSelectedDate }) {
   var yearStart = rhDates.length > 0 ? rhDates[rhDates.length-1][2] : today.slice(0,4) + "-09-01";
   var nextRH = CAL_ROWS.find(function(r) { return r[0]==="c" && r[1] && r[1].indexOf("ראש הש") !== -1 && r[5] && r[5].indexOf("א׳ תשרי") !== -1 && r[2] > today; });
   var yearEnd = nextRH ? nextRH[2] : (parseInt(today.slice(0,4))+1) + "-09-30";
-  var yearRows = CAL_ROWS.filter(function(r) { return r[0]==="s" && r[2] >= yearStart && r[2] < yearEnd; });
+  // הצג רק 12 פרשות קדימה מהיום
+  var allYearRows = CAL_ROWS.filter(function(r) { return r[0]==="s" && r[2] >= yearStart && r[2] < yearEnd; });
+  var todayIdx = allYearRows.findIndex(function(r) { return r[2] >= today; });
+  var startIdx = todayIdx >= 0 ? todayIdx : 0;
+  var yearRows = allYearRows.slice(startIdx, startIdx + 12);
   return /*#__PURE__*/React.createElement("div", { style: { marginTop: 8 } },
     /*#__PURE__*/React.createElement("div", { style: S.stripTitle }, "פרשות השנה העברית הנוכחית"),
     /*#__PURE__*/React.createElement("div", { style: S.chipsWrap },
