@@ -11,23 +11,47 @@
   <div id="root"></div>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <!-- Firebase SDK via compat (synchronous init) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script>
-    firebase.initializeApp({
-      apiKey:"AIzaSyAJ1k66RCKHcjvhzHhvHYPPHipjFLNaCrg",
-      authDomain:"ahavteihem-barnea.firebaseapp.com",
-      projectId:"ahavteihem-barnea",
-      storageBucket:"ahavteihem-barnea.firebasestorage.app",
-      messagingSenderId:"731670766255",
-      appId:"1:731670766255:web:3e6fc6c5f0107768426a5a"
-    });
+    const firebaseConfig = {
+      apiKey:            "AIzaSyAJ1k66RCKHcjvhzHhvHYPPHipjFLNaCrg",
+      authDomain:        "ahavteihem-barnea.firebaseapp.com",
+      projectId:         "ahavteihem-barnea",
+      storageBucket:     "ahavteihem-barnea.firebasestorage.app",
+      messagingSenderId: "731670766255",
+      appId:             "1:731670766255:web:3e6fc6c5f0107768426a5a"
+    };
+    firebase.initializeApp(firebaseConfig);
     const _db = firebase.firestore();
     window._firestore = {
       fsDb: _db,
-      doc: function(db,col,id){ return db.collection(col).doc(id); },
-      getDoc: function(ref){ return ref.get().then(function(s){ return {exists:function(){return s.exists;},data:function(){return s.data();}}; }); },
-      setDoc: function(ref,data){ return ref.set(JSON.parse(JSON.stringify(data))); }
+      doc: function(db, col, id) { return db.collection(col).doc(id); },
+      getDoc: function(ref) {
+        return ref.get().then(function(snap) {
+          return {
+            exists: function(){ return snap.exists; },
+            data: function(){ return snap.data(); }
+          };
+        });
+      },
+      setDoc: function(ref, data) {
+        var clean = JSON.parse(JSON.stringify(data));
+        return ref.set(clean);
+      }
+    };
+    // Extra methods for backup cleanup
+    window._firestoreExtra = {
+      getDocs: function(q) { return q.get(); },
+      collection: function(db, col) { return db.collection(col); },
+      query: function(ref, ...constraints) {
+        var q = ref;
+        constraints.forEach(function(c) { q = c(q); });
+        return q;
+      },
+      where: function(field, op, val) { return function(ref) { return ref.where(field, op, val); }; },
+      deleteDoc: function(ref) { return ref.delete(); }
     };
     console.log("Firebase initialized OK");
   </script>
@@ -80,18 +104,38 @@ function countMemberAliyotInYear(memberName, schedule, yearStart) {
 
 function cleanName(name) {
   if (!name) return "";
+  // Remove Hebrew year numbers like "5786", "5787" etc from chag names
   return name.replace(/\s+5\d{3}$/, "").trim();
 }
 
 function stripNiqqud(str) {
   if (!str) return "";
-  return str.replace(/[\u0591-\u05C7]/g, "").trim();
+  // Remove Hebrew niqqud (diacritics) Unicode range U+0591-U+05C7
+  return str.replace(/[֑-ׇ]/g, "").trim();
 }
 
 function parashaMatch(a, b) {
+  // Compare parasha names ignoring niqqud and year numbers
   return stripNiqqud(cleanName(a)) === stripNiqqud(cleanName(b));
 }
 
+// ─── Storage (Supabase) ───────────────────────────────────────────────────────
+const EMPTY_DB = {
+  members: [],
+  schedule: {},
+  history: {},
+  cycle: [],
+  requests: [],
+  finances: [],
+  shabbatInfo: {},
+  adminSettings: {
+    password: "adir1221",
+    maxAliyotPerYear: 4,
+    siteTitle: "סיירת אהבת חינם",
+    welcomeMessage: ""
+  },
+  auditLog: []
+};
 async function loadFromSupabase() {
   try {
     let attempts = 0;
@@ -105,72 +149,12 @@ async function loadFromSupabase() {
 
 async function saveToSupabase(db) {
   try {
-    if (!window._firestore) { console.error("Firestore not ready"); return; }
-    const { fsDb, doc, setDoc } = window._firestore;
+    if (!window._firestore) return;
+    const { fsDb, doc, setDoc, getDoc } = window._firestore;
     const clean = JSON.parse(JSON.stringify(db));
     await setDoc(doc(fsDb, "shul", "data"), clean);
-    await autoBackup(clean);
+    await autoBackup(fsDb, doc, setDoc, getDoc, clean);
   } catch(e) { console.error("Firestore save error:", e); }
-}
-
-async function autoBackup(data) {
-  try {
-    if (!window._firestore) return;
-    const { fsDb, doc, getDoc, setDoc } = window._firestore;
-    const today = new Date().toISOString().slice(0, 10);
-    const ref = doc(fsDb, "backups", today);
-    const existing = await getDoc(ref);
-    if (existing.exists()) return;
-    await setDoc(ref, {
-      date: today, ts: new Date().toISOString(),
-      members: data.members || [], schedule: data.schedule || {},
-      history: data.history || {}, requests: data.requests || [],
-      finances: data.finances || [], shabbatInfo: data.shabbatInfo || {},
-      adminSettings: data.adminSettings || {}
-    });
-    console.log("Auto-backup saved:", today);
-    try {
-      var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
-      var snap = await fsDb.collection("backups").where("date", "<", cutoff.toISOString().slice(0,10)).get();
-      snap.forEach(function(d) { d.ref.delete(); });
-    } catch(e) {}
-  } catch(e) { console.error("Auto-backup error:", e); }
-}ror) {
-      console.error("Load error:", error.message);
-      return {
-        ...EMPTY_DB
-      };
-    }
-    if (!data) return {
-      ...EMPTY_DB
-    };
-    return {
-      ...EMPTY_DB,
-      ...data.value
-    };
-  } catch (e) {
-    console.error("Supabase load error:", e);
-    return {
-      ...EMPTY_DB
-    };
-  }
-}
-async function saveToSupabase(db) {
-  try {
-    const sb = window.supabaseClient;
-    if (!sb) return;
-    const {
-      error
-    } = await sb.from("shul_data").upsert({
-      key: "main",
-      value: db
-    }, {
-      onConflict: "key"
-    });
-    if (error) console.error("Save error:", error.message);
-  } catch (e) {
-    console.error("Supabase save error:", e);
-  }
 }
 
 // ─── Aliyot helpers ──────────────────────────────────────────────────────────
@@ -1918,35 +1902,6 @@ function AdminSiteSettings({ db, persist, showToast }) {
 function AdminBackup({ db, persist, showToast }) {
 
   // ── הורדת גיבוי ──────────────────────────────────────────────────────────
-  const [backupList, setBackupList] = React.useState([]);
-  const [loadingList, setLoadingList] = React.useState(false);
-  const [restoring, setRestoring] = React.useState(false);
-
-  const loadBackupList = async () => {
-    setLoadingList(true);
-    try {
-      if (!window._firestore) { showToast("Firebase לא מחובר", "err"); return; }
-      const snap = await window._firestore.fsDb.collection("backups").orderBy("date", "desc").limit(90).get();
-      const list = [];
-      snap.forEach(function(d) { list.push(Object.assign({ id: d.id }, d.data())); });
-      setBackupList(list);
-    } catch(e) { showToast("שגיאה בטעינת גיבויים: " + e.message, "err"); }
-    setLoadingList(false);
-  };
-
-  const restoreBackup = async (backup) => {
-    if (!window.confirm("לשחזר גיבוי מתאריך " + backup.date + "? הנתונים הנוכחיים יוחלפו!")) return;
-    setRestoring(true);
-    try {
-      const restored = { ...EMPTY_DB, members: backup.members || [], schedule: backup.schedule || {},
-        history: backup.history || {}, requests: backup.requests || [], finances: backup.finances || [],
-        shabbatInfo: backup.shabbatInfo || {}, adminSettings: backup.adminSettings || db.adminSettings, auditLog: db.auditLog || [] };
-      persist(restored, "שחזור גיבוי", backup.date);
-      showToast("✅ שוחזר בהצלחה מגיבוי " + backup.date);
-    } catch(e) { showToast("שגיאה בשחזור", "err"); }
-    setRestoring(false);
-  };
-
   const downloadBackup = () => {
     const data = JSON.stringify(db, null, 2);
     const blob = new Blob([data], { type: "application/json" });
@@ -2030,29 +1985,6 @@ function AdminBackup({ db, persist, showToast }) {
           type: "file", accept: ".json",
           style: { display:"none" },
           onChange: uploadBackup
-        })
-      )
-    ),
-    /*#__PURE__*/React.createElement("div", { style: S.card },
-      /*#__PURE__*/React.createElement("div", { style: S.cardLabel }, "🗄️ גיבויים אוטומטיים ב-Firebase"),
-      /*#__PURE__*/React.createElement("div", { style: { fontSize:13, color:"#555", marginBottom:12 } },
-        "גיבוי נשמר אוטומטית פעם אחת ביום. שמורים עד 90 ימים."
-      ),
-      /*#__PURE__*/React.createElement(Btn, { onClick: loadBackupList, variant: "dark" },
-        loadingList ? "טוען..." : "📋 הצג גיבויים שמורים"
-      ),
-      backupList.length > 0 && /*#__PURE__*/React.createElement("div", { style: { marginTop:12 } },
-        /*#__PURE__*/React.createElement("div", { style: { fontSize:13, color:"#888", marginBottom:8 } }, backupList.length + " גיבויים נמצאו"),
-        backupList.map(function(b) {
-          return /*#__PURE__*/React.createElement("div", { key: b.id,
-            style: { display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 0", borderBottom:"1px solid #f0e4c0" }
-          },
-            /*#__PURE__*/React.createElement("div", null,
-              /*#__PURE__*/React.createElement("span", { style: { fontWeight:700 } }, b.date),
-              /*#__PURE__*/React.createElement("span", { style: { color:"#888", fontSize:12, marginRight:8 } }, " | " + (b.members||[]).length + " מתפללים")
-            ),
-            /*#__PURE__*/React.createElement(Btn, { onClick: function(){ restoreBackup(b); }, variant: "gold" }, restoring ? "משחזר..." : "שחזר")
-          );
         })
       )
     )
