@@ -646,17 +646,22 @@ function RequestForm({
       );
       if (liveSnap.exists()) {
         const liveReqs = liveSnap.data().requests || [];
+        console.log("Live reqs for check:", liveReqs.filter(r=>r.aliya===aliya).map(r=>r.parasha+"|"+r.name+"|"+r.status));
         existingRequest = liveReqs.find(function(r) {
-          return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
+          var pm = parashaMatch(r.parasha, parasha);
+          console.log("Check:", r.parasha, "vs", parasha, "match:", pm, "aliya:", r.aliya===aliya, "status:", r.status);
+          return pm && r.aliya === aliya && r.status !== "נדחתה";
         });
       }
     } catch(e) {
+      console.error("Live check error:", e);
       existingRequest = (db.requests || []).find(function(r) {
         return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
       });
     }
     if (existingRequest) {
-      showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו (" + existingRequest.name + ") — הבקשה תועבר למנהל לאישור", "err");
+      console.log("Found existing request:", existingRequest.name);
+      showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו של " + existingRequest.name + " — הבקשה תועבר גם כן למנהל לאישור", "err");
     }
     const isNew = !db.members.includes(trimmedName);
     const updatedMembers = isNew
