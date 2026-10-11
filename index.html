@@ -147,13 +147,37 @@ async function loadFromSupabase() {
   } catch(e) { console.error("Firestore load error:", e); return { ...EMPTY_DB }; }
 }
 
+async function autoBackup(data) {
+  try {
+    if (!window._firestore) return;
+    const { fsDb, doc, getDoc, setDoc } = window._firestore;
+    const today = new Date().toISOString().slice(0, 10);
+    const ref = doc(fsDb, "backups", today);
+    const existing = await getDoc(ref);
+    if (existing.exists()) return;
+    await setDoc(ref, {
+      date: today, ts: new Date().toISOString(),
+      members: data.members || [], schedule: data.schedule || {},
+      history: data.history || {}, requests: data.requests || [],
+      finances: data.finances || [], shabbatInfo: data.shabbatInfo || {},
+      adminSettings: data.adminSettings || {}
+    });
+    console.log("Auto-backup saved:", today);
+    try {
+      var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+      var snap = await fsDb.collection("backups").where("date", "<", cutoff.toISOString().slice(0,10)).get();
+      snap.forEach(function(d) { d.ref.delete(); });
+    } catch(e) {}
+  } catch(e) { console.error("Auto-backup error:", e); }
+}
+
 async function saveToSupabase(db) {
   try {
     if (!window._firestore) return;
-    const { fsDb, doc, setDoc, getDoc } = window._firestore;
+    const { fsDb, doc, setDoc } = window._firestore;
     const clean = JSON.parse(JSON.stringify(db));
     await setDoc(doc(fsDb, "shul", "data"), clean);
-    await autoBackup(fsDb, doc, setDoc, getDoc, clean);
+    await autoBackup(clean);
   } catch(e) { console.error("Firestore save error:", e); }
 }
 
