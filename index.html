@@ -683,9 +683,10 @@ function RequestForm({
         return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
       });
     }
+    var hasExisting = false;
     if (existingRequest) {
       console.log("Found existing request:", existingRequest.name);
-      showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו של " + existingRequest.name + " — הבקשה תועבר גם כן למנהל לאישור", "err");
+      hasExisting = true;
     }
     const isNew = !db.members.includes(trimmedName);
     const updatedMembers = isNew
@@ -705,7 +706,11 @@ function RequestForm({
       "בקשה חדשה",
       trimmedName + " — " + parasha + " " + aliya + (isNew ? " (נוסף לרשימה)" : "")
     );
-    showToast("✅ הבקשה התקבלה וממתינה לאישור המנהל (" + (total + 1) + "/" + limit + " עליות השנה)");
+    if (hasExisting) {
+      showToast("⚠️ שים לב: כבר קיימת בקשה של " + existingRequest.name + " לאותה עליה — שתי הבקשות יועברו לאדמין לאישור", "err");
+    } else {
+      showToast("✅ הבקשה התקבלה וממתינה לאישור המנהל (" + (total + 1) + "/" + limit + " עליות השנה)");
+    }
     onClose();
   };
   return /*#__PURE__*/React.createElement("div", {
