@@ -638,25 +638,27 @@ function RequestForm({
       return;
     }
     // בדוק אם כבר קיימת בקשה פתוחה לאותה עליה ופרשה
-    // בדיקה ישירה מ-Firebase בזמן אמת
-    var existingRequest = null;
+    // בדיקה מ-Firebase בזמן אמת
     try {
       const liveSnap = await window._firestore.getDoc(
         window._firestore.doc(window._firestore.fsDb, "shul", "data")
       );
-      if (liveSnap.exists()) {
-        const liveReqs = liveSnap.data().requests || [];
-        existingRequest = liveReqs.find(function(r) {
-          return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
-        });
-      }
-    } catch(e) {
-      existingRequest = (db.requests || []).find(function(r) {
+      const liveData = liveSnap.exists() ? liveSnap.data() : {};
+      const liveRequests = liveData.requests || [];
+      const existingRequest = liveRequests.find(function(r) {
         return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
       });
-    }
-    if (existingRequest) {
-      showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו (" + existingRequest.name + ") — הבקשה תועבר למנהל לאישור", "err");
+      if (existingRequest) {
+        showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו (" + existingRequest.name + ") — הבקשה תועבר למנהל לאישור", "err");
+      }
+    } catch(e) {
+      // fallback לבדיקה מקומית
+      const existingRequest = (db.requests || []).find(function(r) {
+        return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
+      });
+      if (existingRequest) {
+        showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו — הבקשה תועבר למנהל לאישור", "err");
+      }
     }
     const isNew = !db.members.includes(trimmedName);
     const updatedMembers = isNew
