@@ -37,10 +37,21 @@
         });
       },
       setDoc: function(ref, data) {
-        // Deep clean: remove undefined values that Firestore rejects
         var clean = JSON.parse(JSON.stringify(data));
         return ref.set(clean);
       }
+    };
+    // Extra methods for backup cleanup
+    window._firestoreExtra = {
+      getDocs: function(q) { return q.get(); },
+      collection: function(db, col) { return db.collection(col); },
+      query: function(ref, ...constraints) {
+        var q = ref;
+        constraints.forEach(function(c) { q = c(q); });
+        return q;
+      },
+      where: function(field, op, val) { return function(ref) { return ref.where(field, op, val); }; },
+      deleteDoc: function(ref) { return ref.delete(); }
     };
     console.log("Firebase initialized OK");
   </script>
@@ -127,9 +138,49 @@ async function loadFromSupabase() {
 async function saveToSupabase(db) {
   try {
     if (!window._firestore) return;
-    const { fsDb, doc, setDoc } = window._firestore;
-    await setDoc(doc(fsDb, "shul", "data"), JSON.parse(JSON.stringify(db)));
+    const { fsDb, doc, setDoc, getDoc } = window._firestore;
+    const clean = JSON.parse(JSON.stringify(db));
+    await setDoc(doc(fsDb, "shul", "data"), clean);
+    // גיבוי יומי אוטומטי
+    await autoBackup(fsDb, doc, setDoc, getDoc, clean);
   } catch(e) { console.error("Firestore save error:", e); }
+}
+
+async function autoBackup(fsDb, doc, setDoc, getDoc, data) {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const backupRef = doc(fsDb, "backups", today);
+    const existing = await getDoc(backupRef);
+    if (existing.exists()) return; // גיבוי היום כבר קיים
+    // שמור גיבוי של היום
+    await setDoc(backupRef, {
+      date: today,
+      ts: new Date().toISOString(),
+      members: data.members || [],
+      schedule: data.schedule || {},
+      history: data.history || {},
+      requests: data.requests || [],
+      finances: data.finances || [],
+      shabbatInfo: data.shabbatInfo || {},
+      adminSettings: data.adminSettings || {}
+    });
+    console.log("Auto-backup saved:", today);
+    // מחק גיבויים ישנים מעל 90 יום
+    await cleanOldBackups(fsDb, doc, today);
+  } catch(e) { console.error("Auto-backup error:", e); }
+}
+
+async function cleanOldBackups(fsDb, doc, today) {
+  try {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const { getDocs, collection, query, where, deleteDoc } = window._firestoreExtra || {};
+    if (!getDocs) return; // extra methods not loaded yet
+    const q = query(collection(fsDb, "backups"), where("date", "<", cutoffStr));
+    const snap = await getDocs(q);
+    snap.forEach(async d => { await deleteDoc(d.ref); });
+  } catch(e) { /* silent */ }
 }
 
 // ─── Aliyot helpers ──────────────────────────────────────────────────────────
@@ -342,7 +393,7 @@ function HomeScreen({
   })),
   /*#__PURE__*/React.createElement("div", {
     style: S.parashaName
-  }, row[0] === "c" ? "✡ " : "", cleanName(row[1])),
+  }, row[0] === "c" ? "✡ " : "פרשת ", cleanName(row[1])),
   row[6] && /*#__PURE__*/React.createElement("div", {
     style: { fontSize: 13, color: "#c8b87a", marginBottom: 8 }
   }, row[6].split("|").filter(h => h.trim()).map((h, i) => /*#__PURE__*/React.createElement("span", {
@@ -361,10 +412,10 @@ function HomeScreen({
       return /*#__PURE__*/React.createElement(ZmanCard, { key: "pc"+i, label: card.label, time: card.time, icon: card.icon || "🕌" });
     });
   })()
-  )), (db.adminSettings && db.adminSettings.welcomeMessage) && /*#__PURE__*/React.createElement("div", {
+  )), (shabbatData.note || (db.adminSettings && db.adminSettings.welcomeMessage)) && /*#__PURE__*/React.createElement("div", {
     style: { background: "rgba(212,175,55,0.15)", border: "1px solid #d4af37", borderRadius: 10,
       padding: "10px 16px", margin: "12px 0", color: "#f5e6c8", fontSize: 14, textAlign: "center" }
-  }, db.adminSettings.welcomeMessage),
+  }, shabbatData.note || db.adminSettings.welcomeMessage),
   (shabbatData.lessons && shabbatData.lessons.length > 0) && /*#__PURE__*/React.createElement("div", {
     style: { ...S.card, marginTop: 12 }
   },
@@ -600,6 +651,13 @@ function RequestForm({
       showToast("⛔ הגעת למגבלה של " + limit + " עליות לשנה העברית. לא ניתן להגיש בקשה נוספת. פנה למנהל המערכת.", "err");
       return;
     }
+    // בדוק אם כבר קיימת בקשה לאותה עליה ופרשה
+    const existingRequest = (db.requests || []).find(function(r) {
+      return r.parasha === parasha && r.aliya === aliya && r.status !== "נדחתה";
+    });
+    if (existingRequest) {
+      showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו — הבקשה תועבר למנהל לאישור", "err");
+    }
     const isNew = !db.members.includes(trimmedName);
     const updatedMembers = isNew
       ? [...db.members, trimmedName].sort((a, b) => a.localeCompare(b, "he"))
@@ -745,21 +803,39 @@ function AliyotScreen({
     style: {
       marginTop: 8
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: S.stripTitle
-  }, "כל הפרשות המשובצות"), /*#__PURE__*/React.createElement("div", {
-    style: S.chipsWrap
-  }, CAL_ROWS.filter(r => r[0] === "s" && Object.keys(db.schedule[r[1]] || {}).length > 0).map(r => /*#__PURE__*/React.createElement("button", {
-    key: r[2],
-    style: {
-      ...S.chip,
-      ...(r[2] === selectedDate ? S.chipActive : {})
-    },
-    onClick: () => setSelectedDate(r[2])
-  }, r[1])), CAL_ROWS.filter(r => r[0] === "s" && Object.keys(db.schedule[r[1]] || {}).length > 0).length === 0 && /*#__PURE__*/React.createElement("span", {
-    style: S.emptyText
-  }, "אין פרשות משובצות עדיין")))));
+  }, /*#__PURE__*/React.createElement(YearParashiyot, {
+    db: db,
+    selectedDate: selectedDate,
+    setSelectedDate: setSelectedDate
+  })
+  ))
+  );
 }
+
+function YearParashiyot({ db, selectedDate, setSelectedDate }) {
+  var today = new Date().toISOString().split("T")[0];
+  var rhDates = CAL_ROWS.filter(function(r) { return r[0]==="c" && r[1] && r[1].indexOf("ראש הש") !== -1 && r[5] && r[5].indexOf("א׳ תשרי") !== -1 && r[2] <= today; });
+  var yearStart = rhDates.length > 0 ? rhDates[rhDates.length-1][2] : today.slice(0,4) + "-09-01";
+  var nextRH = CAL_ROWS.find(function(r) { return r[0]==="c" && r[1] && r[1].indexOf("ראש הש") !== -1 && r[5] && r[5].indexOf("א׳ תשרי") !== -1 && r[2] > today; });
+  var yearEnd = nextRH ? nextRH[2] : (parseInt(today.slice(0,4))+1) + "-09-30";
+  var yearRows = CAL_ROWS.filter(function(r) { return r[0]==="s" && r[2] >= yearStart && r[2] < yearEnd; });
+  return /*#__PURE__*/React.createElement("div", { style: { marginTop: 8 } },
+    /*#__PURE__*/React.createElement("div", { style: S.stripTitle }, "פרשות השנה העברית הנוכחית"),
+    /*#__PURE__*/React.createElement("div", { style: S.chipsWrap },
+      yearRows.map(function(r) {
+        var hasSchedule = Object.keys(db.schedule[r[1]] || {}).length > 0;
+        return /*#__PURE__*/React.createElement("button", {
+          key: r[2],
+          style: Object.assign({}, S.chip,
+            r[2] === selectedDate ? S.chipActive : {},
+            hasSchedule ? { borderColor: "#16a34a", color: r[2]===selectedDate?"#fff":"#16a34a" } : {}),
+          onClick: function() { setSelectedDate(r[2]); }
+        }, r[1]);
+      })
+    )
+  );
+}
+
 function printParasha(parasha, schedule) {
   const win = window.open("", "_blank");
   if (!win) return;
@@ -1837,6 +1913,44 @@ function AdminSiteSettings({ db, persist, showToast }) {
 function AdminBackup({ db, persist, showToast }) {
 
   // ── הורדת גיבוי ──────────────────────────────────────────────────────────
+  const [backupList, setBackupList] = React.useState([]);
+  const [loadingList, setLoadingList] = React.useState(false);
+  const [restoring, setRestoring] = React.useState(false);
+
+  const loadBackupList = async () => {
+    setLoadingList(true);
+    try {
+      const { fsDb } = window._firestore || {};
+      if (!fsDb) { showToast("Firebase לא מחובר", "err"); return; }
+      const snap = await fsDb.collection("backups").orderBy("date", "desc").limit(90).get();
+      const list = [];
+      snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+      setBackupList(list);
+    } catch(e) { showToast("שגיאה בטעינת גיבויים", "err"); }
+    setLoadingList(false);
+  };
+
+  const restoreBackup = async (backup) => {
+    if (!window.confirm("לשחזר גיבוי מתאריך " + backup.date + "? הנתונים הנוכחיים יוחלפו!")) return;
+    setRestoring(true);
+    try {
+      const restored = {
+        ...EMPTY_DB,
+        members: backup.members || [],
+        schedule: backup.schedule || {},
+        history: backup.history || {},
+        requests: backup.requests || [],
+        finances: backup.finances || [],
+        shabbatInfo: backup.shabbatInfo || {},
+        adminSettings: backup.adminSettings || db.adminSettings,
+        auditLog: db.auditLog || []
+      };
+      persist(restored, "שחזור גיבוי", backup.date);
+      showToast("✅ שוחזר בהצלחה מגיבוי " + backup.date);
+    } catch(e) { showToast("שגיאה בשחזור", "err"); }
+    setRestoring(false);
+  };
+
   const downloadBackup = () => {
     const data = JSON.stringify(db, null, 2);
     const blob = new Blob([data], { type: "application/json" });
@@ -1920,6 +2034,40 @@ function AdminBackup({ db, persist, showToast }) {
           type: "file", accept: ".json",
           style: { display:"none" },
           onChange: uploadBackup
+        })
+      )
+    ),
+
+    /*#__PURE__*/React.createElement("div", { style: S.card },
+      /*#__PURE__*/React.createElement("div", { style: S.cardLabel }, "🗄️ גיבויים אוטומטיים ב-Firebase"),
+      /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "#555", marginBottom: 12 } },
+        "גיבוי נשמר אוטומטית פעם אחת ביום (בעת שמירה ראשונה). שמורים עד 90 ימים."
+      ),
+      /*#__PURE__*/React.createElement(Btn, {
+        onClick: loadBackupList,
+        variant: "dark"
+      }, loadingList ? "טוען..." : "📋 הצג גיבויים שמורים"),
+      backupList.length > 0 && /*#__PURE__*/React.createElement("div", { style: { marginTop: 12 } },
+        /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "#888", marginBottom: 8 } },
+          backupList.length + " גיבויים נמצאו"
+        ),
+        backupList.map(function(b) {
+          return /*#__PURE__*/React.createElement("div", {
+            key: b.id,
+            style: { display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "10px 0", borderBottom: "1px solid #f0e4c0" }
+          },
+            /*#__PURE__*/React.createElement("div", null,
+              /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700 } }, b.date),
+              /*#__PURE__*/React.createElement("span", { style: { color: "#888", fontSize: 12, marginRight: 8 } },
+                " | " + (b.members || []).length + " מתפללים"
+              )
+            ),
+            /*#__PURE__*/React.createElement(Btn, {
+              onClick: function() { restoreBackup(b); },
+              variant: "gold"
+            }, restoring ? "משחזר..." : "שחזר")
+          );
         })
       )
     )
