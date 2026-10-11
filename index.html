@@ -103,8 +103,20 @@ function countMemberAliyotInYear(memberName, schedule, yearStart) {
 }
 
 function cleanName(name) {
+  if (!name) return "";
   // Remove Hebrew year numbers like "5786", "5787" etc from chag names
   return name.replace(/\s+5\d{3}$/, "").trim();
+}
+
+function stripNiqqud(str) {
+  if (!str) return "";
+  // Remove Hebrew niqqud (diacritics) Unicode range U+0591-U+05C7
+  return str.replace(/[֑-ׇ]/g, "").trim();
+}
+
+function parashaMatch(a, b) {
+  // Compare parasha names ignoring niqqud and year numbers
+  return stripNiqqud(cleanName(a)) === stripNiqqud(cleanName(b));
 }
 
 // ─── Storage (Supabase) ───────────────────────────────────────────────────────
@@ -618,7 +630,7 @@ function RequestForm({
     // חיפוש גמיש - מנרמל ניקוד לצורך השוואה
     var scheduleKeys = Object.keys(db.schedule || {});
     var matchedKey = scheduleKeys.find(function(k) {
-      return k === parasha || cleanName(k) === cleanName(parasha);
+      return parashaMatch(k, parasha);
     });
     var assignedMember = matchedKey && (db.schedule[matchedKey] || {})[aliya];
     if (assignedMember) {
@@ -627,8 +639,7 @@ function RequestForm({
     }
     // בדוק אם כבר קיימת בקשה פתוחה לאותה עליה ופרשה
     const existingRequest = (db.requests || []).find(function(r) {
-      return (r.parasha === parasha || cleanName(r.parasha) === cleanName(parasha)) &&
-             r.aliya === aliya && r.status !== "נדחתה";
+      return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
     });
     if (existingRequest) {
       showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו — הבקשה תועבר למנהל לאישור", "err");
@@ -1442,10 +1453,12 @@ function AdminRequests({
     // 1. אשר את הבקשה
     const requests = db.requests.map(req => req.id === r.id ? { ...req, status: "אושרה ושובצה" } : req);
     // 2. שבץ בפועל בלוח השיבוצים
-    const parashaRow = CAL_ROWS.find(row => row[1] === r.parasha);
+    const parashaRow = CAL_ROWS.find(row => parashaMatch(row[1], r.parasha));
     const newSchedule = { ...db.schedule };
     if (parashaRow) {
-      newSchedule[r.parasha] = { ...(newSchedule[r.parasha] || {}), [r.aliya]: r.name };
+      // Use the CAL_ROWS key (with niqqud) as the canonical key
+      const canonicalParasha = parashaRow[1];
+      newSchedule[canonicalParasha] = { ...(newSchedule[canonicalParasha] || {}), [r.aliya]: r.name };
     }
     // 3. הוסף להיסטוריה
     const newHistory = { ...db.history };
