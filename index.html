@@ -637,6 +637,12 @@ function RequestForm({
       return;
     }
     const trimmedName = name.trim();
+    // בדוק שהשם קיים ברשימת המתפללים
+    const memberExists = (db.members || []).includes(trimmedName);
+    if (!memberExists) {
+      showToast("⛔ השם " + trimmedName + " לא קיים ברשימת המתפללים. יש להירשם תחילה למערכת.", "err");
+      return;
+    }
     const limit = (db.adminSettings && db.adminSettings.maxAliyotPerYear) || 4;
     const yearStart = getHebrewYear();
     const approved = countMemberAliyotInYear(trimmedName, db.schedule || {}, yearStart);
