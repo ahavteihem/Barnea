@@ -607,7 +607,7 @@ function RequestForm({
   });
   const [aliya, setAliya] = useState(ALIYOT_ASSIGN[0]);
   const [reason, setReason] = useState("");
-  const submit = () => {
+  const submit = async () => {
     if (!name.trim() || !reason.trim()) {
       showToast("יש למלא שם וסיבה", "err");
       return;
@@ -638,11 +638,27 @@ function RequestForm({
       return;
     }
     // בדוק אם כבר קיימת בקשה פתוחה לאותה עליה ופרשה
-    const existingRequest = (db.requests || []).find(function(r) {
-      return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
-    });
-    if (existingRequest) {
-      showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו — הבקשה תועבר למנהל לאישור", "err");
+    // בדיקה מ-Firebase בזמן אמת
+    try {
+      const liveSnap = await window._firestore.getDoc(
+        window._firestore.doc(window._firestore.fsDb, "shul", "data")
+      );
+      const liveData = liveSnap.exists() ? liveSnap.data() : {};
+      const liveRequests = liveData.requests || [];
+      const existingRequest = liveRequests.find(function(r) {
+        return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
+      });
+      if (existingRequest) {
+        showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו (" + existingRequest.name + ") — הבקשה תועבר למנהל לאישור", "err");
+      }
+    } catch(e) {
+      // fallback לבדיקה מקומית
+      const existingRequest = (db.requests || []).find(function(r) {
+        return parashaMatch(r.parasha, parasha) && r.aliya === aliya && r.status !== "נדחתה";
+      });
+      if (existingRequest) {
+        showToast("⚠️ קיימת בקשת רישום פתוחה לעליה זו — הבקשה תועבר למנהל לאישור", "err");
+      }
     }
     const isNew = !db.members.includes(trimmedName);
     const updatedMembers = isNew
@@ -1902,38 +1918,6 @@ function AdminSiteSettings({ db, persist, showToast }) {
 function AdminBackup({ db, persist, showToast }) {
 
   // ── הורדת גיבוי ──────────────────────────────────────────────────────────
-  const [backupList, setBackupList] = React.useState([]);
-  const [loadingList, setLoadingList] = React.useState(false);
-  const [restoring, setRestoring] = React.useState(false);
-
-  const loadBackupList = async () => {
-    setLoadingList(true);
-    try {
-      if (!window._firestore) { showToast("Firebase לא מחובר", "err"); return; }
-      const snap = await window._firestore.fsDb.collection("backups").orderBy("date", "desc").limit(90).get();
-      const list = [];
-      snap.forEach(function(d) { list.push(Object.assign({ id: d.id }, d.data())); });
-      setBackupList(list);
-    } catch(e) { showToast("שגיאה בטעינת גיבויים: " + e.message, "err"); }
-    setLoadingList(false);
-  };
-
-  const restoreBackup = async (backup) => {
-    if (!window.confirm("לשחזר גיבוי מתאריך " + backup.date + "? הנתונים הנוכחיים יוחלפו!")) return;
-    setRestoring(true);
-    try {
-      const restored = { ...EMPTY_DB,
-        members: backup.members || [], schedule: backup.schedule || {},
-        history: backup.history || {}, requests: backup.requests || [],
-        finances: backup.finances || [], shabbatInfo: backup.shabbatInfo || {},
-        adminSettings: backup.adminSettings || db.adminSettings, auditLog: db.auditLog || []
-      };
-      persist(restored, "שחזור גיבוי", backup.date);
-      showToast("✅ שוחזר בהצלחה מגיבוי " + backup.date);
-    } catch(e) { showToast("שגיאה בשחזור", "err"); }
-    setRestoring(false);
-  };
-
   const downloadBackup = () => {
     const data = JSON.stringify(db, null, 2);
     const blob = new Blob([data], { type: "application/json" });
@@ -2017,36 +2001,6 @@ function AdminBackup({ db, persist, showToast }) {
           type: "file", accept: ".json",
           style: { display:"none" },
           onChange: uploadBackup
-        })
-      )
-    ),
-    /*#__PURE__*/React.createElement("div", { style: S.card },
-      /*#__PURE__*/React.createElement("div", { style: S.cardLabel }, "🗄️ גיבויים אוטומטיים ב-Firebase"),
-      /*#__PURE__*/React.createElement("div", { style: { fontSize:13, color:"#555", marginBottom:12 } },
-        "גיבוי נשמר אוטומטית פעם אחת ביום. שמורים עד 90 ימים."
-      ),
-      /*#__PURE__*/React.createElement(Btn, { onClick: loadBackupList, variant: "dark" },
-        loadingList ? "טוען..." : "📋 הצג גיבויים שמורים"
-      ),
-      backupList.length > 0 && /*#__PURE__*/React.createElement("div", { style: { marginTop:12 } },
-        /*#__PURE__*/React.createElement("div", { style: { fontSize:13, color:"#888", marginBottom:8 } },
-          backupList.length + " גיבויים נמצאו"
-        ),
-        backupList.map(function(b) {
-          return /*#__PURE__*/React.createElement("div", { key: b.id,
-            style: { display:"flex", justifyContent:"space-between", alignItems:"center",
-              padding:"10px 0", borderBottom:"1px solid #f0e4c0" }
-          },
-            /*#__PURE__*/React.createElement("div", null,
-              /*#__PURE__*/React.createElement("span", { style: { fontWeight:700 } }, b.date),
-              /*#__PURE__*/React.createElement("span", { style: { color:"#888", fontSize:12, marginRight:8 } },
-                " | " + (b.members||[]).length + " מתפללים"
-              )
-            ),
-            /*#__PURE__*/React.createElement(Btn, {
-              onClick: function(){ restoreBackup(b); }, variant: "gold"
-            }, restoring ? "משחזר..." : "שחזר")
-          );
         })
       )
     )
