@@ -456,16 +456,43 @@ function HomeScreen({
     onClose: function() { setReqForm(false); }
   })));
 }
+function SynagogueIcon({ size }) {
+  var h = React.createElement;
+  var s = size || 34;
+  return h("svg", { width: s * 1.2, height: s, viewBox: "0 0 48 40", xmlns: "http://www.w3.org/2000/svg", style: { display: "block", margin: "0 auto" } },
+    // קרקע
+    h("rect", { x: 0, y: 35, width: 48, height: 2, rx: 1, fill: "#6b8f3a" }),
+    // גוף בית הכנסת
+    h("rect", { x: 12, y: 18, width: 24, height: 17, fill: "#e9dcb8" }),
+    // גג
+    h("polygon", { points: "9,18 24,6 39,18", fill: "#d4af37" }),
+    // מגן דוד על הגג
+    h("polygon", { points: "24,9.6 27,14.8 21,14.8", fill: "none", stroke: "#2d1b4e", strokeWidth: 0.9 }),
+    h("polygon", { points: "24,16.5 27,11.3 21,11.3", fill: "none", stroke: "#2d1b4e", strokeWidth: 0.9 }),
+    // דלת מקושתת
+    h("path", { d: "M20.5 35 V28.5 A3.5 3.5 0 0 1 27.5 28.5 V35 Z", fill: "#2d1b4e" }),
+    // חלונות מקושתים
+    h("path", { d: "M14.5 27 V23.5 A1.8 1.8 0 0 1 18.1 23.5 V27 Z", fill: "#6fa8dc" }),
+    h("path", { d: "M29.9 27 V23.5 A1.8 1.8 0 0 1 33.5 23.5 V27 Z", fill: "#6fa8dc" }),
+    // ילדים (גן ילדים)
+    h("circle", { cx: 5, cy: 27.5, r: 2.2, fill: "#f4c28f" }),
+    h("rect", { x: 3, y: 30, width: 4, height: 5, rx: 1.2, fill: "#e8604c" }),
+    h("circle", { cx: 43, cy: 27.5, r: 2.2, fill: "#f4c28f" }),
+    h("rect", { x: 41, y: 30, width: 4, height: 5, rx: 1.2, fill: "#4c9be8" })
+  );
+}
+
 function ZmanCard({
   label,
   time,
   icon
 }) {
+  var showSynagogue = icon === "🕌" || icon === "🕍";
   return /*#__PURE__*/React.createElement("div", {
     style: S.zmanCard
   }, /*#__PURE__*/React.createElement("div", {
     style: S.zmanIcon
-  }, icon), /*#__PURE__*/React.createElement("div", {
+  }, showSynagogue ? /*#__PURE__*/React.createElement(SynagogueIcon, { size: 30 }) : icon), /*#__PURE__*/React.createElement("div", {
     style: S.zmanLabel
   }, label), /*#__PURE__*/React.createElement("div", {
     style: S.zmanTime
@@ -1147,7 +1174,7 @@ function AdminHomeEdit({
       onClick: () => update("havdalah", havdalah),
       variant: "gold"
     }, "שמור"))))), /*#__PURE__*/React.createElement("div", { style: S.card },
-      /*#__PURE__*/React.createElement("div", { style: S.cardLabel }, "🕌 קוביות תפילה (4 קוביות)"),
+      /*#__PURE__*/React.createElement("div", { style: S.cardLabel }, "🕍 קוביות תפילה (4 קוביות)"),
       /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, color: "#888", marginBottom: 12 } }, "ערוך את תוכן 4 קוביות התפילה המוצגות במסך הבית"),
       (info.prayerCards || [
         { label: "מנחה ערב שבת", time: "", icon: "🕌" },
